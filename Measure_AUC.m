@@ -1,63 +1,48 @@
-function AccumAuc = Measure_AUC(Scores, Labels)
-% Area Under Curve for Amonaly
-% 
-% Scores: predicted scores;
-% Labels: groundtruth labels, PosLabel = 1& NegLabel = 0;
+clear
 
-NumInst = length(Scores);
+%% load data
+data=load('breastw_683.csv');
+ADLabels=data(:,end);
+Data=data(:,1:end-1);
+ 
+%% Run iForest
+% general parameters
+rounds = 10; % rounds of repeat
 
-% sort Scores and Labels
-[Scores, index] = sort(Scores, 'descend');
-Labels = Labels(index);
 
-PosLabel = 1;
-NegLabel = 0;
+% parameters for iForest
+NumTree = 100; % number of isolation trees
+NumSub = 256; % subsample size
+NumDim = size(Data, 2); % do not perform dimension sampling 
+ 
 
-NumPos = length(find(Labels == PosLabel));
-NumNeg = length(find(Labels == NegLabel));
+auc = zeros(rounds, 1);
+mtime = zeros(rounds, 2);
+rseed = zeros(rounds, 1);
 
-AccumPos = 0;
-AccumNeg = 0;
-AccumAuc = 0;
 
-UnitPos = 1 / NumPos;
-UnitNeg = 1 / NumNeg;
-
-i = 1;
-while i <= NumInst
-    temp = AccumPos;
-    if (i < NumInst - 1) && (Scores(i) == Scores(i + 1))
-        while (i < NumInst - 1) && (Scores(i) == Scores(i + 1))
-            if Labels(i) == NegLabel
-                AccumNeg = AccumNeg + 1;
-            elseif Labels(i) == PosLabel
-                AccumPos = AccumPos + 1;
-            else
-                disp('Label is not defined!');
-            end
-            i = i + 1;
-        end
-
-        if Labels(i) == NegLabel
-            AccumNeg = AccumNeg + 1;
-        elseif Labels(i) == PosLabel
-            AccumPos = AccumPos + 1;
-        else
-            disp('Label is not defined!');
-        end
-
-        AccumAuc = AccumAuc + (AccumPos + temp) * UnitPos * AccumNeg * UnitNeg / 2;
-        AccumNeg = 0;
-    else
-        if Labels(i) == NegLabel
-            AccumNeg = AccumNeg + 1;
-            AccumAuc = AccumAuc + AccumPos * UnitPos * AccumNeg * UnitNeg;
-            AccumNeg = 0;
-        elseif Labels(i) == PosLabel
-            AccumPos = AccumPos + 1;
-        else
-            disp('Label is not defined');
-        end
-    end
-    i = i + 1;
+for r = 1:rounds
+    disp(['rounds ', num2str(r), ':']);
+    
+    rseed(r) = sum(100 * clock);
+    Forest = IsolationForest(Data, NumTree, NumSub, NumDim, rseed(r));
+    mtime(r, 1) = Forest.ElapseTime;
+%    [Mass, mtime(r, 2)] = IsolationEstimation(Data, Forest);
+    [Mass, ~] = IsolationEstimation(Data, Forest);
+    Score = - mean(Mass, 2);
+    auc(r) = Measure_AUC(Score, ADLabels);
+    disp(['auc = ', num2str(auc(r)), '.']);
+%    [~,~,~,AUClog(r)] = perfcurve(logical(ADLabels),Score,'true');    
 end
+
+% myresults = [mean(auc), var(auc), mean(mtime(:, 1)), mean(mtime(:, 2))] 
+
+AUC_results = [mean(auc), std(auc)] % average AUC over 10 trials
+ 
+
+%% Plot AUC based on last trial
+
+[Xlog,Ylog,Tlog,AUClog] = perfcurve(logical(ADLabels),Score,'true');
+plot(Xlog,Ylog) 
+xlabel('False positive rate'); ylabel('True positive rate');
+title('AUC')
